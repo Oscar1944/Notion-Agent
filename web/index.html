@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Notion-Agent — Web UI</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Notion-Agent Web UI</h1>
+    <p class="subtitle">Single-page interface to interact with your Notion-Agent backend</p>
+  </header>
+
+  <main>
+    <aside class="sidebar">
+      <div class="dossier-header">
+        <h2>Dossier</h2>
+        <small class="muted">Manage up to 5 collections</small>
+      </div>
+
+      <div id="collections" class="collections">
+        <ul id="collection-list" class="collection-list">Loading...</ul>
+      </div>
+
+      <div class="collection-actions">
+        <button id="add-collection">+ New Collection</button>
+      </div>
+
+      <div id="collection-form" class="collection-form hidden">
+        <label for="col-name">Name</label>
+        <input id="col-name" type="text" />
+        <label for="col-desc">Description</label>
+        <textarea id="col-desc" rows="3"></textarea>
+        <div class="actions">
+          <button id="save-collection">Save</button>
+          <button id="cancel-collection">Cancel</button>
+        </div>
+      </div>
+    </aside>
+
+    <section class="controls">
+      <label for="backend">Backend URL</label>
+      <input id="backend" type="url" placeholder="http://localhost:8000" />
+
+      <label for="query">Query / Prompt</label>
+      <textarea id="query" rows="6" placeholder="Ask something about your Notion docs..."></textarea>
+
+      <div class="actions">
+        <button id="send">Send</button>
+        <button id="clear">Clear</button>
+      </div>
+    </section>
+
+    <section class="results">
+      <h2>Response</h2>
+      <pre id="response">No response yet.</pre>
+    </section>
+  </main>
+
+  <footer>
+    <small>Notion-Agent — Frontend prototype</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+:root{--bg:#0f1720;--card:#0b1220;--accent:#4f46e5;--muted:#94a3b8;--text:#e6eef8}
+*{box-sizing:border-box;font-family:Inter,Segoe UI,Roboto,system-ui,-apple-system,Arial}
+html,body{height:100%;margin:0;background:linear-gradient(180deg,#071029 0%,#071427 100%);color:var(--text)}
+header{padding:20px 24px;border-bottom:1px solid rgba(255,255,255,0.03)}
+h1{margin:0;font-size:20px}
+.subtitle{margin:4px 0 0;color:var(--muted);font-size:13px}
+main{display:flex;gap:24px;padding:24px;align-items:flex-start}
+.controls{flex:1;max-width:640px;background:rgba(255,255,255,0.02);padding:16px;border-radius:8px}
+.controls label{display:block;margin:8px 0 6px;color:var(--muted);font-size:13px}
+input[type=url],textarea{width:100%;padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text);resize:vertical}
+.actions{margin-top:12px;display:flex;gap:8px}
+button{background:var(--accent);border:none;color:white;padding:10px 14px;border-radius:6px;cursor:pointer}
+button#clear{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+.results{flex:1;min-width:360px;background:rgba(255,255,255,0.02);padding:16px;border-radius:8px}
+pre{white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,0.2);padding:12px;border-radius:6px;color:var(--text);max-height:65vh;overflow:auto}
+footer{padding:12px 24px;color:var(--muted);font-size:13px}
