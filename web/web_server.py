@@ -160,10 +160,11 @@ async def agent_response(request: ChatRequest):
     query = request.query
     try:
         response = await AGENT.chat(query)
-    except:
+    except Exception as e:
+        print(e)
         raise HTTPException(status_code=505, detail='Agent has error during response genreation') 
     
-    return response["output"]
+    return JSONResponse(response)
 
 
 @app.get('/', include_in_schema=False)

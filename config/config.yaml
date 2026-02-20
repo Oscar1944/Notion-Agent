@@ -6,4 +6,3 @@ LLM:
   # MODEL: "gemini-2.0-flash"
   # MODEL: "gemini-2.0-flash-lite"
 
-CHROMA_PATH: "./chroma_db"

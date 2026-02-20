@@ -12,5 +12,5 @@ input[type=url],textarea{width:100%;padding:10px;border-radius:6px;border:1px so
 button{background:var(--accent);border:none;color:white;padding:10px 14px;border-radius:6px;cursor:pointer}
 button#clear{background:transparent;border:1px solid rgba(255,255,255,0.06)}
 .results{flex:1;min-width:360px;background:rgba(255,255,255,0.02);padding:16px;border-radius:8px}
-pre{white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,0.2);padding:12px;border-radius:6px;color:var(--text);max-height:65vh;overflow:auto}
+#response{white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,0.2);padding:12px;border-radius:6px;color:var(--text);max-height:65vh;overflow:auto}
 footer{padding:12px 24px;color:var(--muted);font-size:13px}

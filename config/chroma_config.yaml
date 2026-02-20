@@ -1,0 +1,15 @@
+# Database Setting
+DATABASE: "CHROMA"
+DB_PATH: "chroma_db/"
+COLLECTION: "test_collection" # only support single collection for now
+
+# Embedding Setting (work while collection not exist)
+EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+SPACE: "cosine"
+DIM: 384
+
+# Searching Setting
+SEARCH_TYPE: "similarity_score_threshold"
+SEARCH_THRESHOLD: 0.5
+TOP_K: 10
+RERANK_TOP_N: 5

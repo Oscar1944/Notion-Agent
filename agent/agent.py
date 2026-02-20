@@ -2,7 +2,7 @@ from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient  
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_classic.memory import ConversationBufferMemory
+from langchain_classic.memory import ConversationBufferMemory, ConversationBufferWindowMemory
 
 import asyncio
 
@@ -13,16 +13,25 @@ class Agent:
 
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a helpful assistant. 
-             You should answer the user question.
-             You have been provided the conversation history, refer to it if needed.
-             You have the access to the tools, use it if needed.
+             You should answer the question as you can and continue the conversation.
+             The conversation history and access to the tool have been provided, you can use it when it is needed.
              """),
-            MessagesPlaceholder(variable_name="chat_history"), # 記憶存放處
+
+             ("system", "## Here is the conversation history"),
+            MessagesPlaceholder(variable_name="chat_history"), # convresation history
+
+            ("system", "## Here is the USER question"),
             ("user", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad")  # Agent Thinking
+
+            ("system", "## Here is the thinking process"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),  # Agent Thinking
+
+            ("system", "## EXAMPLE"),
+            ("system", "In most of cases, you should just answer the question with plain text."),
+            ("system", "USER: How's the weather today.  Your Response: It is sunny with 20 celsius degree, a good day to hang out."),
         ])
 
-        self.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        self.memory = ConversationBufferWindowMemory(memory_key="chat_history", return_messages=True, k=5)
 
         self.agent = create_tool_calling_agent(self.llm, self.tool, self.prompt)
         self.agent_exe = AgentExecutor(
@@ -34,9 +43,25 @@ class Agent:
         )
 
     async def chat(self, query):
-        res = await self.agent_exe.ainvoke({"input":query})
+        output = await self.agent_exe.ainvoke({"input":query})
+        output = output["output"]
 
-        return res
+        # Gemini may output plain text or JSON content with signature & text fragments.
+        response = ""
+        if isinstance(output, str):
+            response = output
+        elif isinstance(output, list):
+            fragments = []
+            for item in output:
+                if isinstance(item, str):
+                    # 如果這片是字串，直接加入
+                    fragments.append(item)
+                elif isinstance(item, dict):
+                    # 如果這片是物件，提取 text 欄位
+                    fragments.append(item.get("text", ""))
+            response = "".join(fragments)
+
+        return response
 
 
 

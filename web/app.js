@@ -15,7 +15,17 @@ document.addEventListener('DOMContentLoaded',()=>{
   const cancelCollectionBtn=document.getElementById('cancel-collection');
   let editingId = null;
 
-  function setResponse(text){ respEl.textContent=text }
+  function setResponse(text){ 
+    if (!text) return;
+    
+    const respEl = document.getElementById('response');
+    
+    // Regular expression: replace char \\n with change line \n 
+    let cleanText = String(text).replace(/\\n/g, '\n');
+    cleanText = cleanText.replace(/\\n\\n/g, '\n\n');
+
+    respEl.textContent = cleanText;
+  }
 
   function showForm(collection){
     collectionForm.classList.remove('hidden');
@@ -101,11 +111,8 @@ document.addEventListener('DOMContentLoaded',()=>{
       // Default endpoint: POST { query: string } to /api/chat
       const url=backend+ '/api/chat'
       const agent_response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query})})
-      const text=await agent_response.text()
-      try{ // pretty JSON when possible
-        const json=JSON.parse(text)
-        setResponse(JSON.stringify(json,null,2))
-      }catch(e){ setResponse(text) }
+      const text=await agent_response.json()
+      setResponse(text)
     }catch(err){ setResponse('Request failed: '+err.message) }
   })
 
