@@ -46,7 +46,7 @@ COLLECTIONS_FILE = os.path.abspath(os.path.join(HERE, '..', 'collection_info.yam
 global AGENT
 global toolkit
 
-LLM_Client = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key="XXX")
+LLM_Client = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=json.load("../test_config.json").get("key"))
 MCP_Client = MultiServerMCPClient(
         {
             "Tools": {
