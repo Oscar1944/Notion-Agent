@@ -60,7 +60,7 @@ with open("./config/chroma_config.yaml", "r", encoding="utf-8") as f:
 
 
 ## === Dev-test ===
-@mcp.tool
+@mcp.tool()
 def get_secret()->str:
     """
     Get a secret key
@@ -120,15 +120,16 @@ def init_collection_meta(db_path, collection_name):
 
     print("✅ DB Collection has initialized Successfuly")
 
-# @mcp.tool
-def rag_retrieval(query)->str:
+@mcp.tool()
+def rag_retrieval(query:str)->str:
     """
-    Retrieve relevant information as reference from given collections and re-rank retrieved result.
-    This should provide reference to answer the question.
-    Input: the given query
-    Return: A list of references that relevant to query.
+    Search the database for relevant information based on the user's query.
+    Returns a string containing the relevant snippets or an empty message if nothing found.
+    Input (str): query
+    Return (str): Relevant content or empty if none.
     """
-    # The design of rag_retrieval() support multi-collection
+    # Retrieve relevant information as reference from given collections and re-rank retrieved result.
+    final_retrieval = ""
     try:
         # Retrieve from the given collections
         vector_store = Chroma(
@@ -140,17 +141,20 @@ def rag_retrieval(query)->str:
             search_type=SEARCH_TYPE, 
             search_kwargs={"k": TOP_K, "score_threshold": SEARCH_THRESHOLD}    # RAG top-K=10
         )  
-        retrieval = retriever.invoke(query)
+        rag_retrieval = retriever.invoke(query)
 
         # Re-Ranking from given retrieved results
-        if retrieval:
+        if rag_retrieval:
             compressor = FlashrankRerank(top_n=RERANK_TOP_N)
-            retrieval = compressor.compress_documents(documents=retrieval, query=query)  # Re-Ranking
+            rerank_retrieval = compressor.compress_documents(documents=rag_retrieval, query=query)  # Re-Ranking
+
+            final_retrieval = [f"Source: {doc.metadata.get('source', 'unknown')}\nContent: {doc.page_content}" for doc in rerank_retrieval]
+            final_retrieval = "\n\n".join(final_retrieval)
     
     except Exception as e:
-        raise ValueError(f"Retrieval Error: {e}")
+        final_retrieval = f"Retrieval Error: {e}"
 
-    return retrieval
+    return final_retrieval
 
 
 def rag_query(chroma_client, llm_client, query):
@@ -184,7 +188,7 @@ def rag_query(chroma_client, llm_client, query):
 
 if __name__=="__main__":
     init_collection_meta(DB_PATH, COLLECTION)
-    # mcp.run(transport="http", host="127.0.0.1", port=7007)
+    mcp.run(transport="http", host="127.0.0.1", port=7007)
 
     # dev-test
     res = rag_retrieval("what is overfitting")

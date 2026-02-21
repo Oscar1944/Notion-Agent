@@ -3,6 +3,10 @@ DATABASE: "CHROMA"
 DB_PATH: "chroma_db/"
 COLLECTION: "test_collection" # only support single collection for now
 
+# Chunking Setting
+CHUNK_SIZE: 500
+CHUNK_OVERLAP: 50
+
 # Embedding Setting (work while collection not exist)
 EMBEDDING_MODEL: "all-MiniLM-L6-v2"
 SPACE: "cosine"

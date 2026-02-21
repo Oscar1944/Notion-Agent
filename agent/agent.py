@@ -43,6 +43,9 @@ class Agent:
         )
 
     async def chat(self, query):
+        """
+        Send query to Agent, Agent generate response.
+        """
         output = await self.agent_exe.ainvoke({"input":query})
         output = output["output"]
 
@@ -67,7 +70,7 @@ class Agent:
 
 # dev-test
 async def test():
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key="AIzaSyASSpK37mLNMmjiHESB1QfvTqmAgwy6770")
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key="-A")
     mcp_client = MultiServerMCPClient(
         {
             "Tools": {
@@ -84,7 +87,7 @@ async def test():
 
     res = await agent.chat("what is my last question")
 
-    print(res["output"])
+    print(res)
 
 # dev-test
 # asyncio.run(test())

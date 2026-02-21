@@ -1,9 +1,0 @@
-collection-1:
-  collection-name: "recipe"
-  description: "This is a collection of recipe"
-  documents: ["recipe-1", "extra-recipe"]
-
-colelction-2:
-  colelction-name: "data science"
-  description: "This is a collection data science"
-  documents: ["wiki of data science", "Feature Engineering Radmap"]

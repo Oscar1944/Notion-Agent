@@ -5,8 +5,13 @@ import uuid
 
 # Add parent directory to path so we can import sibling modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import chromadb
+from langchain_chroma import Chroma
+from chromadb.utils import embedding_functions
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
@@ -24,6 +29,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 HERE = os.path.dirname(__file__)
 STATIC_DIR = HERE
+PARENT_DIR = os.path.dirname(HERE)
+UPLOAD_DIR = os.path.join(PARENT_DIR, 'uploads')
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # === FastAPI Website ===
 app = FastAPI()
@@ -40,13 +48,38 @@ app.add_middleware(
 BACKEND = os.environ.get('BACKEND_URL','http://localhost:8000')
 
 # === Chroma DB & Collection ===
-COLLECTIONS_FILE = os.path.abspath(os.path.join(HERE, '..', 'collection_info.yaml'))  # path to collection.yaml
+# DB Setting
+global DB_PATH
+global COLLECTION
+global COLLECTION_CLIENT
+# Chunking Setting
+global CHUNK_SIZE
+global CHUNK_OVERLAP
+
+with open(r"C:\Users\USER\Desktop\VS Code file\RAG-Agent\Notion-Agent\config\chroma_config.yaml", "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
+    if config["DATABASE"]!="CHROMA":
+        raise ValueError("Database only support Chroma, please make sure applying Chroma DB.")
+    # DB_PATH = config["DB_PATH"]
+    DB_PATH = r"C:\Users\USER\Desktop\VS Code file\RAG-Agent\Notion-Agent\chroma_db"
+    COLLECTION = config["COLLECTION"]
+    DB_CLIENT = chromadb.PersistentClient(path=DB_PATH)
+    COLLECTION_CLIENT = DB_CLIENT.get_or_create_collection(COLLECTION)
+    # COLLECTION_CLIENT = Chroma(
+    #     persist_directory=DB_PATH,
+    #     collection_name=COLLECTION,
+    #     embedding_function=embedding_functions.DefaultEmbeddingFunction()
+    # )
+    
+    CHUNK_SIZE = config["CHUNK_SIZE"]
+    CHUNK_OVERLAP = config["CHUNK_OVERLAP"]
 
 # === Agent (LLM, MCP) ===
 global AGENT
 global toolkit
 
-LLM_Client = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=json.load("../test_config.json").get("key"))
+# LLM_Client = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=json.load("../test_config.json").get("key"))
+LLM_Client = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key="-A")
 MCP_Client = MultiServerMCPClient(
         {
             "Tools": {
@@ -61,42 +94,51 @@ MCP_Client = MultiServerMCPClient(
 class ChatRequest(BaseModel):
     query: str
 
+# === DB ===
+def db_upload(upload_file_path):
+    """
+    Add file into the DB
+    """
+    try:
+        # Load file & Chunking
+        loader = PyPDFLoader(upload_file_path)
+        data = loader.load()
 
-def load_collections():
-    if os.path.exists(COLLECTIONS_FILE) and os.path.getsize(COLLECTIONS_FILE) > 0:
-        if yaml:
-            with open(COLLECTIONS_FILE, 'r', encoding='utf-8') as f:
-                try:
-                    data = yaml.safe_load(f) or {}
-                except Exception:
-                    data = {}
-        else:
-            # fallback to JSON if PyYAML missing
-            with open(COLLECTIONS_FILE, 'r', encoding='utf-8') as f:
-                try:
-                    data = json.load(f)
-                except Exception:
-                    data = {}
-    else:
-        data = {}
-    # normalize structure
-    if not isinstance(data, dict):
-        data = {'collections': []}
-    if 'collections' not in data:
-        data['collections'] = []
-    return data
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+        chunks = text_splitter.split_documents(data)
 
-def save_collections(data):
-    # Ensure directory
-    os.makedirs(os.path.dirname(COLLECTIONS_FILE), exist_ok=True)
-    tmp = COLLECTIONS_FILE + '.tmp'
-    if yaml:
-        with open(tmp, 'w', encoding='utf-8') as f:
-            yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
-    else:
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, COLLECTIONS_FILE)
+        # Assign UUID
+        documents_list = []
+        metadatas_list = []
+        ids_list = []
+        for chunk in chunks:
+            documents_list.append(chunk.page_content)
+            metadatas_list.append(chunk.metadata)
+            ids_list.append(str(uuid.uuid4()))  # Generate ID for each chunks
+
+        # Store into DB
+        COLLECTION_CLIENT.add(
+            ids=ids_list,
+            documents=documents_list,
+            metadatas=metadatas_list
+        )
+    except Exception as e:
+        print(e)
+        raise ValueError(f"Upload file to DB has error")
+    print("File upload successdfuly")
+
+def db_delete(delete_file_path):
+    """
+    Delete file that exist in DB
+    """
+    try:
+        filename = os.path.basename(delete_file_path)
+        COLLECTION_CLIENT.delete(where={"source": delete_file_path})
+    except Exception as e:
+        print(e)
+        raise ValueError("Error occur when deleting files in DB")
+    print("File delete successfuly")
+    
 
 # === Startup Event ===
 @app.on_event("startup")
@@ -106,55 +148,58 @@ async def startup_event():
     AGENT = Agent(LLM_Client, toolkit)
     print("✓ Agent initialized successfully")
 
-@app.get('/api/collections')
-def get_collections():
-    data = load_collections()
-    return data
-
-@app.post('/api/collections')
-async def create_collection(request: Request):
-    payload = await request.json() or {}
-    name = payload.get('name','').strip()
-    description = payload.get('description','').strip()
-    data = load_collections()
-    cols = data.get('collections', [])
-    if len(cols) >= 5:
-        raise HTTPException(status_code=400, detail='Maximum of 5 collections reached')
-    new_id = uuid.uuid4().hex
-    col = {'id': new_id, 'name': name, 'description': description}
-    cols.append(col)
-    data['collections'] = cols
-    save_collections(data)
-    return JSONResponse(col, status_code=201)
+#  === CRUD Dossier ===
+@app.get('/api/dossier/files')
+def list_dossier_files():
+    """
+    API to Get all of files (filename, file-size)
+    """
+    files = []
+    try:
+        for fname in os.listdir(UPLOAD_DIR):
+            full = os.path.join(UPLOAD_DIR, fname)
+            if os.path.isfile(full):
+                files.append({'name': fname, 'size': os.path.getsize(full)})
+    except Exception:
+        files = []
+    return {'files': files}
 
 
-@app.put('/api/collections/{col_id}')
-async def update_collection(col_id: str, request: Request):
-    data = load_collections()
-    cols = data.get('collections', [])
-    found = next((c for c in cols if c.get('id') == col_id), None)
-    if not found:
-        raise HTTPException(status_code=404, detail='Collection not found')
-    payload = await request.json() or {}
-    found['name'] = payload.get('name', found.get('name','')).strip()
-    found['description'] = payload.get('description', found.get('description','')).strip()
-    save_collections(data)
-    return found
+@app.post('/api/dossier/files')
+async def upload_dossier_file(file: UploadFile = File(...)):
+    """
+    API to upload file to Dossier
+    """
+    safe_name = os.path.basename(file.filename)
+    dest = os.path.join(UPLOAD_DIR, safe_name)  # File uploaded path
+    try:
+        contents = await file.read()
+        with open(dest, 'wb') as f:
+            f.write(contents)  # save file into uploads/
+            db_upload(dest)  # save file as vector into DB
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {'name': safe_name, 'size': os.path.getsize(dest)}
 
 
-@app.delete('/api/collections/{col_id}')
-def delete_collection(col_id: str):
-    data = load_collections()
-    cols = data.get('collections', [])
-    found = next((c for c in cols if c.get('id') == col_id), None)
-    if not found:
-        raise HTTPException(status_code=404, detail='Collection not found')
-    cols = [c for c in cols if c.get('id') != col_id]
-    data['collections'] = cols
-    save_collections(data)
+@app.delete('/api/dossier/files/{filename}')
+def delete_dossier_file(filename: str):
+    """
+    API to delete file from Dossier
+    """
+    safe = os.path.basename(filename)
+    path = os.path.join(UPLOAD_DIR, safe) # File uploaded path
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail='File not found')
+    try:
+        os.remove(path)  # remove file from uploaded path uploads/
+        db_delete(path)  # remove file from DB
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return JSONResponse({}, status_code=204)
 
 
+# === Send message to Agent and get Agent response ===
 @app.post('/api/chat')
 async def agent_response(request: ChatRequest):
     query = request.query
@@ -167,6 +212,7 @@ async def agent_response(request: ChatRequest):
     return JSONResponse(response)
 
 
+# === Root (Web init redering) ===
 @app.get('/', include_in_schema=False)
 async def root():
     return FileResponse(os.path.join(STATIC_DIR, 'index.html'))

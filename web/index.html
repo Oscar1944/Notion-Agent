@@ -16,26 +16,15 @@
     <aside class="sidebar">
       <div class="dossier-header">
         <h2>Dossier</h2>
-        <small class="muted">Manage up to 5 collections</small>
+        <small class="muted">Manage reference documents</small>
       </div>
 
-      <div id="collections" class="collections">
-        <ul id="collection-list" class="collection-list">Loading...</ul>
-      </div>
-
-      <div class="collection-actions">
-        <button id="add-collection">+ New Collection</button>
-      </div>
-
-      <div id="collection-form" class="collection-form hidden">
-        <label for="col-name">Name</label>
-        <input id="col-name" type="text" />
-        <label for="col-desc">Description</label>
-        <textarea id="col-desc" rows="3"></textarea>
-        <div class="actions">
-          <button id="save-collection">Save</button>
-          <button id="cancel-collection">Cancel</button>
+      <div id="dossier" class="dossier">
+        <div class="upload-row">
+          <input id="file-input" type="file" />
+          <button id="upload-file">Upload</button>
         </div>
+        <ul id="file-list" class="file-list">Loading...</ul>
       </div>
     </aside>
 
