@@ -6,12 +6,13 @@ import uuid
 # Add parent directory to path so we can import sibling modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import chromadb
+from tool.db_client import ChromaDB_Client
 from langchain_chroma import Chroma
 from chromadb.utils import embedding_functions
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Response
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
@@ -51,10 +52,13 @@ BACKEND = os.environ.get('BACKEND_URL','http://localhost:8000')
 # DB Setting
 global DB_PATH
 global COLLECTION
-global COLLECTION_CLIENT
+
 # Chunking Setting
 global CHUNK_SIZE
 global CHUNK_OVERLAP
+
+# Customized DB instance
+global ChromaDB  
 
 with open(r"C:\Users\USER\Desktop\VS Code file\RAG-Agent\Notion-Agent\config\chroma_config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
@@ -63,23 +67,16 @@ with open(r"C:\Users\USER\Desktop\VS Code file\RAG-Agent\Notion-Agent\config\chr
     # DB_PATH = config["DB_PATH"]
     DB_PATH = r"C:\Users\USER\Desktop\VS Code file\RAG-Agent\Notion-Agent\chroma_db"
     COLLECTION = config["COLLECTION"]
-    DB_CLIENT = chromadb.PersistentClient(path=DB_PATH)
-    COLLECTION_CLIENT = DB_CLIENT.get_or_create_collection(COLLECTION)
-    # COLLECTION_CLIENT = Chroma(
-    #     persist_directory=DB_PATH,
-    #     collection_name=COLLECTION,
-    #     embedding_function=embedding_functions.DefaultEmbeddingFunction()
-    # )
-    
     CHUNK_SIZE = config["CHUNK_SIZE"]
     CHUNK_OVERLAP = config["CHUNK_OVERLAP"]
+    ChromaDB = ChromaDB_Client(DB_PATH, COLLECTION, CHUNK_SIZE=CHUNK_SIZE, CHUNK_OVERLAP=CHUNK_OVERLAP)
 
 # === Agent (LLM, MCP) ===
 global AGENT
 global toolkit
 
 # LLM_Client = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=json.load("../test_config.json").get("key"))
-LLM_Client = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key="-A")
+LLM_Client = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key="-8")
 MCP_Client = MultiServerMCPClient(
         {
             "Tools": {
@@ -93,52 +90,6 @@ MCP_Client = MultiServerMCPClient(
 # === Request ===
 class ChatRequest(BaseModel):
     query: str
-
-# === DB ===
-def db_upload(upload_file_path):
-    """
-    Add file into the DB
-    """
-    try:
-        # Load file & Chunking
-        loader = PyPDFLoader(upload_file_path)
-        data = loader.load()
-
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-        chunks = text_splitter.split_documents(data)
-
-        # Assign UUID
-        documents_list = []
-        metadatas_list = []
-        ids_list = []
-        for chunk in chunks:
-            documents_list.append(chunk.page_content)
-            metadatas_list.append(chunk.metadata)
-            ids_list.append(str(uuid.uuid4()))  # Generate ID for each chunks
-
-        # Store into DB
-        COLLECTION_CLIENT.add(
-            ids=ids_list,
-            documents=documents_list,
-            metadatas=metadatas_list
-        )
-    except Exception as e:
-        print(e)
-        raise ValueError(f"Upload file to DB has error")
-    print("File upload successdfuly")
-
-def db_delete(delete_file_path):
-    """
-    Delete file that exist in DB
-    """
-    try:
-        filename = os.path.basename(delete_file_path)
-        COLLECTION_CLIENT.delete(where={"source": delete_file_path})
-    except Exception as e:
-        print(e)
-        raise ValueError("Error occur when deleting files in DB")
-    print("File delete successfuly")
-    
 
 # === Startup Event ===
 @app.on_event("startup")
@@ -176,7 +127,8 @@ async def upload_dossier_file(file: UploadFile = File(...)):
         contents = await file.read()
         with open(dest, 'wb') as f:
             f.write(contents)  # save file into uploads/
-            db_upload(dest)  # save file as vector into DB
+            # db_upload(dest)  # save file as vector into DB
+            ChromaDB.add_document(dest)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {'name': safe_name, 'size': os.path.getsize(dest)}
@@ -193,10 +145,11 @@ def delete_dossier_file(filename: str):
         raise HTTPException(status_code=404, detail='File not found')
     try:
         os.remove(path)  # remove file from uploaded path uploads/
-        db_delete(path)  # remove file from DB
+        # db_delete(path)  # remove file from DB
+        ChromaDB.delete_document(path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return JSONResponse({}, status_code=204)
+    return Response(status_code=204)
 
 
 # === Send message to Agent and get Agent response ===
@@ -250,8 +203,15 @@ async def proxy(request: Request, path: str):
 
     excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
     headers = {k: v for k, v in resp.headers.items() if k.lower() not in excluded_headers}
-    return JSONResponse(resp.json() if resp.headers.get('content-type', '').startswith('application/json') else resp.text, 
-                       status_code=resp.status_code, headers=headers)
+    if resp.headers.get('content-type', '').startswith('application/json'):
+        try:
+            return JSONResponse(content=resp.json(), status_code=resp.status_code, headers=headers)
+        except Exception:
+            # 如果 json 解析失敗，回傳文本
+            return Response(content=resp.text, status_code=resp.status_code, headers=headers)
+    else:
+        # 回傳純文字或 HTML，使用透明的 Response 而非 JSONResponse
+        return Response(content=resp.content, status_code=resp.status_code, headers=headers)
 
 
 if __name__ == '__main__':

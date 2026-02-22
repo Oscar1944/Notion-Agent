@@ -1,12 +1,17 @@
 from fastmcp import FastMCP
-
+import os
 import chromadb
+from db_client import ChromaDB_Client
 from chromadb.utils import embedding_functions
-
+from langchain_core.documents import Document
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_classic.retrievers.document_compressors import FlashrankRerank
+from flashrank import Ranker
+FlashrankRerank.model_rebuild()
+FlashrankRerank.model_rebuild(_types_namespace={"Ranker": Ranker})
+from flashrank import Ranker
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -28,18 +33,14 @@ with open("./config/config.yaml", "r", encoding="utf-8") as f:
 # DB setting
 global DB_PATH
 global COLLECTION
-global COLLECTION_META  # Store details of current collection
-
-# DB Embedding Setting (For initializing a new collection)
-global EMBEDDING_MODEL
-global SPACE
-global DIM
 
 # DB Searching Setting
-global SEARCH_TYPE
 global SEARCH_THRESHOLD
 global TOP_K
 global RERANK_TOP_N
+
+# Customized DB instance
+global ChromaDB  
 
 with open("./config/chroma_config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
@@ -49,14 +50,12 @@ with open("./config/chroma_config.yaml", "r", encoding="utf-8") as f:
     DB_PATH = config["DB_PATH"]
     COLLECTION = config["COLLECTION"]
 
-    EMBEDDING_MODEL = config["EMBEDDING_MODEL"]
-    SPACE = config["SPACE"]
-    DIM = config["DIM"]
-
-    SEARCH_TYPE = config["SEARCH_TYPE"]
-    SEARCH_THRESHOLD = config["SEARCH_THRESHOLD"]
+    # SEARCH_THRESHOLD = config["SEARCH_THRESHOLD"]
+    SEARCH_THRESHOLD = 100
     TOP_K = config["TOP_K"]
     RERANK_TOP_N = config["RERANK_TOP_N"]
+
+    ChromaDB = ChromaDB_Client(DB_PATH, COLLECTION, SEARCH_THRESHOLD=SEARCH_THRESHOLD, TOP_K=TOP_K)
 
 
 ## === Dev-test ===
@@ -69,58 +68,8 @@ def get_secret()->str:
 
     return sk
 
-## === RAG Function===
-def init_collection_meta(db_path, collection_name):
-    """
-    Get meta-data of a collection.
-    """
-    global COLLECTION_META
-    embed_func = None  # Embedding function obj
-    collection_meta = {}  # collection details
-    
-    # DB Client
-    client = chromadb.PersistentClient(path=db_path) 
-
-    # Check Embedding model
-    if EMBEDDING_MODEL=="all-MiniLM-L6-v2":
-        embed_func = embedding_functions.DefaultEmbeddingFunction()  # Chroma DB applies 'all-MiniLM-L6-v2' as default embedding.
-    else:
-        embed_func = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL)
-
-    # Check if collection existed
-    existing_collections = [c.name for c in client.list_collections()]
-    if collection_name in existing_collections:
-        pass
-    else:
-        print(f"⚠️ Collection {collection_name} not found. Do you want to buid collection {collection_name} (y/n) ?")
-        user_confirm = input()
-        if user_confirm.lower()=="y" or user_confirm.lower()=="yes":
-            # Build collection
-            collection = client.get_or_create_collection(
-                name=collection_name,
-                embedding_function=embed_func,
-                metadata={
-                    "hnsw:space": SPACE,       # embbedding space (cosine, l2, ip)
-                    "model_name": EMBEDDING_MODEL,# model name
-                    "dimension": DIM               # model dim
-                }
-            )
-        else:
-            print("SYSTEM STOP")
-            sys.exit()
-    
-    # === Collection Details ===
-    col = client.get_collection(name=collection_name)
-    meta = col.metadata or {}
-    collection_meta["dim"] = meta.get("dimension")  # Get embedding dim
-    collection_meta["space"] = meta.get("hnsw:space")  # Get searching metrics
-    collection_meta["embedding"] = meta.get("model_name")  # Get embedding model name
-    collection_meta["embed_func"] = embed_func
-    COLLECTION_META = collection_meta
-
-    print("✅ DB Collection has initialized Successfuly")
-
-@mcp.tool()
+# === RAG ===
+# @mcp.tool()
 def rag_retrieval(query:str)->str:
     """
     Search the database for relevant information based on the user's query.
@@ -131,24 +80,30 @@ def rag_retrieval(query:str)->str:
     # Retrieve relevant information as reference from given collections and re-rank retrieved result.
     final_retrieval = ""
     try:
-        # Retrieve from the given collections
-        vector_store = Chroma(
-            persist_directory=DB_PATH,
-            collection_name=COLLECTION,
-            embedding_function=COLLECTION_META["embed_func"]
-        )
-        retriever = vector_store.as_retriever(
-            search_type=SEARCH_TYPE, 
-            search_kwargs={"k": TOP_K, "score_threshold": SEARCH_THRESHOLD}    # RAG top-K=10
-        )  
-        rag_retrieval = retriever.invoke(query)
+        # Retrieve chunks from the DB collections , Get List[Dict]->Dict(content, metadata(dict), score)
+        retrieval_result = ChromaDB.retrieve(query)
+
+        # Convert ChromaDB spec into Langchain Chroma spec, List[Langchain Document obj]
+        langchain_retrieval_result = []
+        for result in retrieval_result:
+            langchain_retrieval_result.append(
+                Document(page_content=result["content"], metadata=result["metadata"])
+            )
 
         # Re-Ranking from given retrieved results
-        if rag_retrieval:
+        if langchain_retrieval_result:
+            # Initilize Re-Ranker & Re-Ranking
             compressor = FlashrankRerank(top_n=RERANK_TOP_N)
-            rerank_retrieval = compressor.compress_documents(documents=rag_retrieval, query=query)  # Re-Ranking
+            rerank_retrieval_result = compressor.compress_documents(documents=langchain_retrieval_result, query=query)
 
-            final_retrieval = [f"Source: {doc.metadata.get('source', 'unknown')}\nContent: {doc.page_content}" for doc in rerank_retrieval]
+            # Combine re-ranked result into a single string, () is not a tuple is used to combine str
+            final_retrieval = [
+                (
+                    f"Source: {os.path.basename(rerank_result.metadata.get('source', 'unknown'))}\n"
+                    f"Content: {rerank_result.page_content}"
+                )
+                for rerank_result in rerank_retrieval_result
+            ]
             final_retrieval = "\n\n".join(final_retrieval)
     
     except Exception as e:
@@ -187,10 +142,9 @@ def rag_query(chroma_client, llm_client, query):
 
 
 if __name__=="__main__":
-    init_collection_meta(DB_PATH, COLLECTION)
-    mcp.run(transport="http", host="127.0.0.1", port=7007)
+    # mcp.run(transport="http", host="127.0.0.1", port=7007)
 
     # dev-test
-    res = rag_retrieval("what is overfitting")
+    res = rag_retrieval("地道")
 
     print(res)
